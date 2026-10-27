@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.4sllm.server</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/var/root/4sllm/llm4s-ios</string>
+        <string>-m</string>
+        <string>/var/root/4sllm/minimind2s_q8.sllm</string>
+        <string>-t</string>
+        <string>/var/root/4sllm/minimind2s.tok</string>
+        <string>--serve</string>
+        <string>8080</string>
+        <string>--web</string>
+        <string>/var/root/4sllm</string>
+        <string>--threads</string>
+        <string>2</string>
+    </array>
+
+    <!-- keep it on the low side: iOS 6 on a 4S kills things aggressively -->
+    <key>Nice</key>
+    <integer>5</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+    <key>ThrottleInterval</key>
+    <integer>20</integer>
+
+    <key>StandardOutPath</key>
+    <string>/var/root/4sllm/server.log</string>
+    <key>StandardErrorPath</key>
+    <string>/var/root/4sllm/server.log</string>
+</dict>
+</plist>

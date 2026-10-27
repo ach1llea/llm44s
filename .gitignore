@@ -1,0 +1,24 @@
+# ---- build artifacts (regenerate with ./build_*.sh) ----
+build-mac/
+build-ios/
+build-ipa/
+llm4s
+*.ipa
+
+# ---- python env + upstream checkpoints (hundreds of MB, re-downloadable) ----
+.venv/
+models/minimind2s/
+models/minimind2/
+*.safetensors
+__pycache__/
+
+# ---- generated model files (tools/export_model.py / export_tokenizer.py) ----
+# Everything the app mmaps is reproducible from the checkpoints above; the
+# 100 MB .sllm files do not belong in git history.
+models/*.sllm
+models/*.tok
+
+# ---- OS junk (this project lives on exFAT, which litters ._ AppleDouble files) ----
+.DS_Store
+._*
+*.log

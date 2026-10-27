@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>4S LLM</title>
+<style>
+  * { -webkit-box-sizing: border-box; box-sizing: border-box;
+      -webkit-tap-highlight-color: rgba(0,0,0,0); }
+  html, body { margin: 0; padding: 0; height: 100%;
+      background: #12131a; color: #e6e6ea;
+      font: 14px/1.5 "Helvetica Neue", Helvetica, sans-serif;
+      overflow: hidden; }
+  #top { position: absolute; top: 0; left: 0; right: 0; height: 42px;
+      padding: 0 10px; line-height: 42px;
+      background: #1c1e28; border-bottom: 1px solid #2b2e3d; }
+  #top b { font-size: 15px; font-weight: 600; letter-spacing: .3px; }
+  #top .dot { display: inline-block; width: 7px; height: 7px; border-radius: 4px;
+      background: #3fbf7f; margin-right: 6px; vertical-align: 1px; }
+  #meta { float: right; color: #6f7488; font-size: 11px; line-height: 42px; }
+  #log { position: absolute; top: 42px; left: 0; right: 0; bottom: 46px;
+      overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 10px; }
+  .m { margin: 0 0 10px 0; max-width: 92%; clear: both; }
+  .u { float: right; background: #2b4a7a; color: #eaf1fb;
+      border-radius: 12px 12px 3px 12px; padding: 7px 11px;
+      word-wrap: break-word; }
+  .a { float: left; background: #23262f; color: #dfe2ea;
+      border-radius: 12px 12px 12px 3px; padding: 7px 11px;
+      word-wrap: break-word; white-space: pre-wrap; }
+  .a.on { border-left: 2px solid #4d7ecb; }
+  .sys { text-align: center; color: #5c6070; font-size: 11px; margin: 6px 0 12px; }
+  #bar { position: absolute; bottom: 0; left: 0; right: 0; height: 46px;
+      padding: 6px; background: #1c1e28; border-top: 1px solid #2b2e3d; }
+  #q { width: 72%; height: 34px; padding: 0 10px; float: left;
+      border: 1px solid #343849; border-radius: 17px; background: #12131a;
+      color: #e6e6ea; font-size: 15px; outline: none;
+      -webkit-appearance: none; }
+  #send { float: right; width: 24%; height: 34px; border: 0; border-radius: 17px;
+      background: #3d6ec4; color: #fff; font-size: 14px; font-weight: 600; }
+  #send:active { background: #2f5aa3; }
+  #send[disabled] { background: #2a2d3a; color: #6f7488; }
+  #reset { float: right; margin-left: 6px; height: 34px; width: 30px;
+      border: 0; border-radius: 17px; background: #262a36; color: #8b90a3;
+      font-size: 15px; }
+</style>
+</head>
+<body>
+<div id="top"><span class="dot"></span><b>4S LLM</b><span id="meta">loading</span></div>
+<div id="log"></div>
+<div id="bar">
+  <input id="q" type="text" placeholder="说点什么…" autocapitalize="off"
+         autocorrect="off" autocomplete="off">
+  <button id="send">发送</button>
+</div>
+
+<script>
+var log = document.getElementById('log');
+var q = document.getElementById('q');
+var send = document.getElementById('send');
+var meta = document.getElementById('meta');
+var busy = false, es = null, cur = null, curText = '', t0 = 0;
+
+function add(cls, text) {
+  var d = document.createElement('div');
+  d.className = 'm ' + cls;
+  d.appendChild(document.createTextNode(text || ''));
+  log.appendChild(d);
+  log.scrollTop = log.scrollHeight;
+  return d;
+}
+function scroll() { log.scrollTop = log.scrollHeight; }
+
+function stats() {
+  var x = new XMLHttpRequest();
+  x.open('GET', '/stats', true);
+  x.onreadystatechange = function () {
+    if (x.readyState == 4 && x.status == 200) {
+      try {
+        var d = JSON.parse(x.responseText);
+        meta.innerHTML = d.tok_s > 0 ? (d.tok_s.toFixed(1) + ' tok/s') : (d.layers + 'L ' + d.hidden + 'd');
+      } catch (e) {}
+    }
+  };
+  x.send(null);
+}
+
+function finish() {
+  busy = false;
+  send.disabled = false;
+  send.innerHTML = '发送';
+  if (cur) { cur.className = 'm a'; cur = null; }
+  if (es) { es.close(); es = null; }
+  stats();
+}
+
+function ask(text) {
+  if (busy || !text) return;
+  busy = true;
+  send.disabled = true;
+  send.innerHTML = '…';
+  add('u', text);
+  cur = add('a on', '');
+  curText = '';
+  t0 = new Date().getTime();
+
+  var url = '/chat?q=' + encodeURIComponent(text) + '&n=96&temp=0.85&top_p=0.9&top_k=40';
+  es = new EventSource(url);
+
+  es.onmessage = function (ev) {
+    var d;
+    try { d = JSON.parse(ev.data); } catch (e) { return; }
+    if (d.t !== undefined) {
+      curText += d.t;
+      cur.innerHTML = '';
+      cur.appendChild(document.createTextNode(curText));
+      scroll();
+    } else if (d.done) {
+      var s = ((new Date().getTime() - t0) / 1000).toFixed(1);
+      meta.innerHTML = d.tok_s.toFixed(1) + ' tok/s · ' + s + 's';
+      finish();
+    }
+  };
+  es.onerror = function () {
+    if (busy) {
+      if (!curText) { cur.appendChild(document.createTextNode('(连接中断)')); }
+      finish();
+    }
+  };
+}
+
+send.onclick = function () {
+  var t = q.value.replace(/^\s+|\s+$/g, '');
+  if (!t) return;
+  q.value = '';
+  q.blur();
+  ask(t);
+};
+
+q.onkeydown = function (e) {
+  if (e.keyCode === 13) { send.onclick(); return false; }
+};
+
+document.getElementById('top').onclick = function () {
+  if (busy) return;
+  log.innerHTML = '';
+  add('sys', '新对话');
+  var x = new XMLHttpRequest();
+  x.open('GET', '/reset', true);
+  x.send(null);
+};
+
+window.onload = function () {
+  add('sys', 'MiniMind 26M · int8 · 全本地推理');
+  stats();
+};
+</script>
+</body>
+</html>
