@@ -61,7 +61,9 @@ src/            C 引擎（约 1900 行，无第三方依赖）
 tools/
   export_model.py      HF safetensors → .sllm（手写解析，不需要 torch；--q4 出 int4）
   export_tokenizer.py  tokenizer.json → tok.bin
-  ref_forward.py       numpy 参考实现，用于数值对拍
+  ref_forward.py       numpy 参考实现（fp32），用于数值对拍
+  ref_chat.py          fp32 贪心生成，判断"模型笨"还是"量化坏了"
+  appsim.c             复现 App 的多轮 / KV-cache 流程（改 _conv 逻辑时跑它）
   verify_sllm.py       从 .sllm 反量化后跑参考前向，区分"量化损失"和"实现 bug"
   test_tokenizer.py    分词器一致性测试
   fix_entry.py         LC_MAIN → LC_UNIXTHREAD（iOS 6 的 dyld 只认后者）
@@ -73,7 +75,7 @@ app/            原生 iOS App（UIKit，MD3，无 storyboard，纯代码布局�
 web/index.html  Safari 前端（纯 ES5，iOS 6 可用）
 build_mac.sh    本机构建（CLI）
 build_ios6.sh   armv7 / iOS 6 交叉构建（CLI）
-build_ipa.sh    构建 Ember.ipa（原生 App，两个模型都打进去，72MB）
+build_ipa.sh    构建 LLM44S.ipa（原生 App，两个 int8 模型都打进去，114MB）
 install_ipa.sh  通过 ssh 安装到设备
 deploy.sh       拷贝 CLI 版到设备 + 可选 LaunchDaemon
 deploy/com.4sllm.plist  开机自启配置
@@ -351,6 +353,35 @@ cd /var/root/4sllm
 这个脚本把 `.sllm` 自己反量化一遍再跑参考前向，所以能和 fp32 对比出**纯粹的量化损失**。
 如果 C 引擎和它的 logits 对不上，那才是 kernel 的 bug。当初就是靠它确认 4-bit 那 0.91
 的余弦是 4-bit 本身的精度上限，不是我解包写错了。
+
+## 版本控制
+
+```sh
+git log --oneline --decorate     # 看历史
+git tag                          # v0.3 = 真机验证过的 iOS 6 构建
+git diff v0.3 -- src/            # 和某个版本比差异
+```
+
+**仓库本体不在项目目录里**：`/Volumes/T9` 是 exFAT，macOS 给每个新文件写
+`com.apple.provenance` 扩展属性，exFAT 只能用 AppleDouble 落盘，于是 `.git/refs/heads`
+旁边会长出 `._heads`、`objects/pack` 里长出 `._pack-*.idx`。`git fsck` 会把它们当成坏 ref
+报错，`git gc` 会去解析那个假的 `.idx`（`non-monotonic index`）。所以 git 目录放在 APFS：
+
+```
+项目/.git                     ← 一个 9 字节的文本文件：gitdir: /Users/<you>/.git-repos/4sllm.git
+/Users/<you>/.git-repos/4sllm.git   ← 真正的对象库（248 KB）
+```
+
+移动或改名项目目录后，改 `.git` 文件里那一行路径即可；换机器时把 `.git-repos/4sllm.git`
+一起拷走。
+
+**不入库的东西**（都能重新生成，见 `.gitignore`）：`models/minimind2*/`（HF 权重，579 MB）、
+`models/*.sllm`、`models/*.tok`、`*.ipa`、`build-*/`、`.venv/`。代价是**回退代码不等于回退
+二进制**：回到旧版本后要重新 `./build_ipa.sh`，如果 `.sllm` 格式动过还要重跑
+`tools/export_model.py`。
+
+exFAT 不保存可执行位（`core.fileMode=false`），回退后如果 `./build_ipa.sh` 报
+`permission denied`，先 `chmod +x *.sh tools/*.py tools/*.sh`。
 
 ## 工程要点
 
