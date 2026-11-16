@@ -81,6 +81,28 @@ deploy.sh       拷贝 CLI 版到设备 + 可选 LaunchDaemon
 deploy/com.4sllm.plist  开机自启配置
 ```
 
+## 准备：下权重、转格式
+
+仓库里只有代码，`.sllm` / `.tok` 是要自己生成的。以 26M 为例：
+
+```sh
+python3 -m venv .venv && .venv/bin/pip install numpy
+
+mkdir -p models/minimind2s && cd models/minimind2s
+for f in config.json model.safetensors tokenizer.json; do
+  curl -LO "https://huggingface.co/jingyaogong/MiniMind2-Small/resolve/main/$f"
+done
+cd ../..
+
+.venv/bin/python tools/export_model.py     models/minimind2s models/minimind2s_q8.sllm --seq 512
+.venv/bin/python tools/export_tokenizer.py models/minimind2s/tokenizer.json models/minimind2s.tok
+```
+
+104M 同理，把 `MiniMind2-Small` 换成 `MiniMind2`、目录换成 `models/minimind2`。
+
+`--seq` 决定 KV cache 上限，**默认 256**，本项目用 512；不写就会比这里的实测数据少一半上下文。
+`export_model.py` 默认输出 int8，不需要 torch——safetensors 是手写解析的，只要 numpy。
+
 ## 快速开始（先在 Mac 上跑通）
 
 ```sh
@@ -354,34 +376,30 @@ cd /var/root/4sllm
 如果 C 引擎和它的 logits 对不上，那才是 kernel 的 bug。当初就是靠它确认 4-bit 那 0.91
 的余弦是 4-bit 本身的精度上限，不是我解包写错了。
 
-## 版本控制
+## 仓库说明
 
 ```sh
-git log --oneline --decorate     # 看历史
+git clone git@github.com:ach1llea/llm44s.git
+cd llm44s
 git tag                          # v0.3 = 真机验证过的 iOS 6 构建
 git diff v0.3 -- src/            # 和某个版本比差异
 ```
-
-**仓库本体不在项目目录里**：`/Volumes/T9` 是 exFAT，macOS 给每个新文件写
-`com.apple.provenance` 扩展属性，exFAT 只能用 AppleDouble 落盘，于是 `.git/refs/heads`
-旁边会长出 `._heads`、`objects/pack` 里长出 `._pack-*.idx`。`git fsck` 会把它们当成坏 ref
-报错，`git gc` 会去解析那个假的 `.idx`（`non-monotonic index`）。所以 git 目录放在 APFS：
-
-```
-项目/.git                     ← 一个 9 字节的文本文件：gitdir: /Users/<you>/.git-repos/4sllm.git
-/Users/<you>/.git-repos/4sllm.git   ← 真正的对象库（248 KB）
-```
-
-移动或改名项目目录后，改 `.git` 文件里那一行路径即可；换机器时把 `.git-repos/4sllm.git`
-一起拷走。
 
 **不入库的东西**（都能重新生成，见 `.gitignore`）：`models/minimind2*/`（HF 权重，579 MB）、
 `models/*.sllm`、`models/*.tok`、`*.ipa`、`build-*/`、`.venv/`。代价是**回退代码不等于回退
 二进制**：回到旧版本后要重新 `./build_ipa.sh`，如果 `.sllm` 格式动过还要重跑
 `tools/export_model.py`。
 
-exFAT 不保存可执行位（`core.fileMode=false`），回退后如果 `./build_ipa.sh` 报
-`permission denied`，先 `chmod +x *.sh tools/*.py tools/*.sh`。
+### 如果放在 exFAT 卷上（macOS）
+
+本项目开发时在 exFAT 卷，踩过两个坑，值得记一笔：
+
+- **git 目录不建议留在 exFAT**：macOS 会给新文件写 `com.apple.provenance` 扩展属性，
+  exFAT 只能用 AppleDouble 落盘，于是 `objects/pack` 旁边长出 `._pack-*.idx`。`git fsck`
+  把 `._*` 当坏 ref，`git gc` 去解析假 `.idx` 报 `non-monotonic index`。解法是把 git 目录
+  挪到 APFS，项目里留一个 `gitdir: /path/to/repo.git` 文本文件。
+- **exFAT 不保存可执行位**（`core.fileMode=false`）：回退后若 `./build_ipa.sh` 报
+  `permission denied`，先 `chmod +x *.sh tools/*.py tools/*.sh`。
 
 ## 工程要点
 
@@ -466,5 +484,13 @@ bf16 scale 是为了省内存——ARMv7 的 NEON 没有 fp16 转换指令，但
 
 ## 许可
 
-`src/` 与 `tools/` 为本项目原创；推理思路参考 Karpathy 的 `llama2.c`（MIT）。
-模型权重来自 [jingyaogong/minimind](https://github.com/jingyaogong/minimind)（Apache-2.0）。
+本项目以 [MIT](LICENSE) 许可发布。
+
+- `src/` 与 `tools/` 为本项目原创；推理思路参考 Karpathy 的 `llama2.c`（MIT）。
+- 模型权重来自 [jingyaogong/minimind](https://github.com/jingyaogong/minimind)（Apache-2.0），
+  权重文件本身不入库，按上文「快速开始」自行转换。
+
+## 贡献
+
+Issue 和 PR 都欢迎。改动量化或 kernel 之前先看一遍上面「实测数据」和「踩坑」两节——
+4S 上的每个结论都对应一次实际测量，别凭直觉推翻。

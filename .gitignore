@@ -22,3 +22,6 @@ models/*.tok
 .DS_Store
 ._*
 *.log
+
+# ---- local dev notes (内网 IP / 本机路径，不入公开仓库) ----
+.workbuddy/
